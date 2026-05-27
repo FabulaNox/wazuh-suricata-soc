@@ -1,0 +1,99 @@
+<!--
+  local_rules.xml  (representative, anonymised)
+  Goes in /var/ossec/etc/rules/local_rules.xml on the Wazuh manager.
+
+  Three tiers:
+    Tier 1  level 3     baseline visibility (searchable data, no notification)
+    Tier 2  level 0     per-host suppressions (silence known-good noise)
+    Tier 3  level 7-12  detections (fire the real-time channel at level 7+)
+  Plus vulnerability-feed tuning (downgrade non-actionable CVEs).
+
+  Per-host scoping uses win.system.computer (the OS hostname) - NOT agent.name,
+  which is not a decoded field at rule-eval time. Hostnames here are abstracted.
+-->
+<group name="local,sysmon,">
+
+  <!-- ───────────── Tier 1: baseline visibility (level 3) ───────────── -->
+  <rule id="101000" level="3">
+    <if_group>sysmon_event1</if_group>
+    <description>Sysmon: process creation</description>
+  </rule>
+  <rule id="101001" level="3">
+    <if_group>sysmon_event3</if_group>
+    <description>Sysmon: network connection</description>
+  </rule>
+  <rule id="101003" level="3">
+    <if_group>sysmon_event_22</if_group>
+    <description>Sysmon: DNS query</description>
+  </rule>
+
+  <!-- ───────────── Tier 2: suppressions (level 0) ───────────── -->
+  <!--
+    Suppress a noisy but legitimate process. CRITICAL: anchor to the FULL install
+    path, not the bare filename - otherwise a payload named the same and dropped
+    in %TEMP% inherits the suppression (a living-off-the-land blind spot).
+  -->
+  <rule id="101020" level="0">
+    <if_sid>101000</if_sid>
+    <field name="win.system.computer" type="pcre2">(?i)^WORKSTATION$</field>
+    <field name="win.eventdata.image" type="pcre2">(?i)^C:\\Program Files\\Vendor\\App\\(service|helper)\.exe$</field>
+    <description>Suppress known-good vendor service on WORKSTATION (full-path anchored)</description>
+  </rule>
+
+  <!-- ───────────── Tier 3: detections (level 7-12) ───────────── -->
+  <rule id="101050" level="10">
+    <if_group>sysmon_event8</if_group>
+    <description>Sysmon: CreateRemoteThread into a system process (possible injection)</description>
+    <mitre><id>T1055</id></mitre>
+  </rule>
+  <rule id="101052" level="12">
+    <if_sid>101050</if_sid>
+    <field name="win.eventdata.targetImage" type="pcre2">(?i)\\(lsass|winlogon|services)\.exe$</field>
+    <description>Sysmon: CreateRemoteThread into a high-risk target (lsass/winlogon)</description>
+    <mitre><id>T1055</id><id>T1003</id></mitre>
+  </rule>
+  <rule id="101053" level="10">
+    <if_group>sysmon_event6</if_group>
+    <field name="win.eventdata.signed" type="pcre2">(?i)false</field>
+    <description>Sysmon: unsigned driver loaded</description>
+    <mitre><id>T1014</id></mitre>
+  </rule>
+  <rule id="101054" level="7">
+    <if_group>sysmon_event_15</if_group>
+    <description>Sysmon: alternate data stream (ADS) written</description>
+    <mitre><id>T1564.004</id></mitre>
+  </rule>
+  <rule id="101055" level="10">
+    <if_group>sysmon_event_13</if_group>
+    <field name="win.eventdata.targetObject" type="pcre2">(?i)\\(Run|RunOnce|Services)\\</field>
+    <description>Sysmon: registry persistence (Run/RunOnce/Services)</description>
+    <mitre><id>T1547.001</id></mitre>
+  </rule>
+  <rule id="101056" level="10">
+    <if_sid>101000</if_sid>
+    <field name="win.eventdata.image" type="pcre2">(?i)\\(Temp|AppData\\Local\\Temp|Users\\Public)\\</field>
+    <description>Sysmon: process spawned from a suspicious path</description>
+    <mitre><id>T1059</id></mitre>
+  </rule>
+
+  <!-- ───────────── Vulnerability-feed tuning ─────────────
+       The discriminator is vulnerability.package.condition (Wazuh strips the
+       data. prefix, so field name="vulnerability.package.condition" matches
+       data.vulnerability.package.condition). "Package default status" = no
+       upstream fix yet -> not actionable -> downgrade below the notify threshold.
+       A fixable High/Critical is left at its raw level and still notifies. -->
+  <rule id="100508" level="0">
+    <if_sid>23508</if_sid>
+    <description>Suppress unscored CVEs (no CVSS assigned yet)</description>
+  </rule>
+  <rule id="100504" level="3">
+    <if_sid>23504</if_sid>
+    <description>Vuln Medium -> level 3 (indexed, silent)</description>
+  </rule>
+  <rule id="100506" level="4">
+    <if_sid>23506</if_sid>
+    <field name="vulnerability.package.condition">Package default status</field>
+    <description>Vuln Critical with no upstream fix -> level 4 (sub-notification); fixable Criticals stay at raw level and notify</description>
+  </rule>
+
+</group>
