@@ -1,6 +1,6 @@
 <div align="center">
 
-# wazuh-suricata-soc
+# SOC driven by Wazuh and Suricata
 
 **A homelab detection stack built for signal, not noise - Wazuh + Suricata, custom MITRE-aligned rules, and level-tiered alerting.**
 
